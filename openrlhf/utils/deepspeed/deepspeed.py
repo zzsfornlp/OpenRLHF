@@ -58,7 +58,7 @@ class DeepspeedStrategy(ABC):
         self.max_norm = max_norm
         self.adam_offload = getattr(args, "adam_offload", False)
         self.zpg = getattr(args, "zpg", 1)
-        self.grad_accum_dtype = getattr(args, "grad_accum_dtype", "fp32")
+        self.grad_accum_dtype = getattr(args, "grad_accum_dtype", None)
         # disable_trace_cache
         self.disable_trace_cache = getattr(args, "disable_trace_cache", False)
 
@@ -84,7 +84,7 @@ class DeepspeedStrategy(ABC):
         self.setup_ring_attn()
         self.world_size = dist.get_world_size()
         self.accumulated_gradient = (
-            self.train_batch_size // self.micro_train_batch_size // self.world_size * self.ring_attn_size
+            self.train_batch_size * self.ring_attn_size // self.micro_train_batch_size // self.world_size
         )
 
     def setup_ring_attn(self):
@@ -262,7 +262,7 @@ class DeepspeedStrategy(ABC):
         # DS Config
         ds_config = get_eval_ds_config(offload=offload, stage=self.stage if self.stage == 3 else 0, bf16=self.bf16)
         ds_config["train_micro_batch_size_per_gpu"] = self.micro_train_batch_size
-        ds_config["train_batch_size"] = self.train_batch_size
+        ds_config["train_batch_size"] = self.train_batch_size * self.ring_attn_size
 
         return ds_config
 
