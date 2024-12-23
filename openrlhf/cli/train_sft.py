@@ -52,6 +52,7 @@ def train(args):
         max_count=args.max_samples,
         train_split=args.train_split,
         eval_split=args.eval_split,
+        stopping_strategy="all_exhausted",  # until ALL
     )
     train_data = train_data.select(range(min(args.max_samples, len(train_data))))
     eval_data = eval_data.select(range(min(args.max_samples, len(eval_data))))
@@ -101,6 +102,8 @@ def train(args):
         num_training_steps=max_steps,
         scheduler_specific_kwargs={"min_lr": args.learning_rate * 0.1},
     )
+
+    strategy.print(f"Ready to train: len(train)={len(train_dataset)}, update_per_epoch={num_update_steps_per_epoch}, epoch={args.max_epochs}, max_steps={max_steps}")
 
     # prepare models
     (model, optim, scheduler) = strategy.prepare((model, optim, scheduler))

@@ -171,6 +171,10 @@ class SFTTrainer(ABC):
                             label[:source_len] = self.loss_fn.IGNORE_INDEX
 
                 gpt_loss = self.loss_fn(output.logits, labels)
+                # --
+                # print(f"ITEMS: {inputs.tolist()} {attention_mask.tolist()} {labels.tolist()}")
+                # breakpoint()
+                # --
                 loss = gpt_loss + aux_loss * self.args.aux_loss_coef
                 self.strategy.backward(loss, self.model, self.optimizer)
                 self.strategy.optimizer_step(self.optimizer, self.model, self.scheduler)
