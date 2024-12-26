@@ -52,7 +52,7 @@ def train(args):
         max_count=args.max_samples,
         train_split=args.train_split,
         eval_split=args.eval_split,
-        stopping_strategy="all_exhausted",  # until ALL
+        stopping_strategy=args.blending_strategy,
     )
     train_data = train_data.select(range(min(args.max_samples, len(train_data))))
     eval_data = eval_data.select(range(min(args.max_samples, len(eval_data))))
@@ -214,6 +214,7 @@ if __name__ == "__main__":
     parser.add_argument("--tokenizer_chat_template", type=str, default=None)
     parser.add_argument("--max_samples", type=int, default=1e8, help="Max number of samples")
     parser.add_argument("--max_len", type=int, default=2048, help="Max tokens for the samples")
+    parser.add_argument("--blending_strategy", type=str, default="first_exhausted", help="dataset blending strategy")
 
     # wandb parameters
     parser.add_argument("--use_wandb", type=str, default=None)
