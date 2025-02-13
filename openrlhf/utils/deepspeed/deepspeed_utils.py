@@ -40,7 +40,7 @@ def get_train_ds_config(
         zero_opt_dict["stage3_max_live_parameters"] = 0
         zero_opt_dict["stage3_max_reuse_distance"] = 0
 
-    return {
+    ret = {
         "steps_per_print": 100,
         "zero_optimization": zero_opt_dict,
         "bf16": {
@@ -51,6 +51,13 @@ def get_train_ds_config(
         "wall_clock_breakdown": False,
         "data_types": {"grad_accum_dtype": grad_accum_dtype},
     }
+
+    if not bf16:  # use fp16 otherwise!
+        ret["fp16"] = {
+            "enabled": True
+        }
+
+    return ret
 
 
 def get_eval_ds_config(

@@ -129,7 +129,8 @@ class SFTTrainer(ABC):
             # train
             self.model.train()
             loss_mean = 0
-            for prompt_id_lens, inputs, attention_masks, infos in self.train_dataloader:
+            for prompt_id_lens, inst_weights, inputs, attention_masks, infos in self.train_dataloader:
+                # if int(os.environ.get("RANK", 100)) == 0: breakpoint()
                 if self.packing_samples:
                     inputs = inputs.to(torch.cuda.current_device())
                     attention_mask = attention_masks.to(torch.cuda.current_device())
@@ -170,7 +171,7 @@ class SFTTrainer(ABC):
                         for label, source_len in zip(labels, prompt_id_lens):
                             label[:source_len] = self.loss_fn.IGNORE_INDEX
 
-                gpt_loss = self.loss_fn(output.logits, labels)
+                gpt_loss = self.loss_fn(output.logits, labels, weights=inst_weights)
                 # --
                 # print(f"ITEMS: {inputs.tolist()} {attention_mask.tolist()} {labels.tolist()}")
                 # breakpoint()

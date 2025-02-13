@@ -74,6 +74,7 @@ class SFTDataset(Dataset):
         self.prompts = processed_dataset["prompt"]
         self.responses = processed_dataset["response"]
         self.prompt_ids_lens = processed_dataset["prompt_ids_len"]
+        self.inst_weights = processed_dataset["inst_weight"]
 
     def process_data(self, data):
         prompt, response = preprocess_data(
@@ -99,8 +100,8 @@ class SFTDataset(Dataset):
                 prompt = None
         else:
             prompt_ids_len = 0
-
-        return {"prompt": prompt, "response": response, "prompt_ids_len": prompt_ids_len}
+        inst_weight = data.get("weight", 1.0)
+        return {"prompt": prompt, "response": response, "prompt_ids_len": prompt_ids_len, "inst_weight": inst_weight}
 
     def __len__(self):
         length = len(self.prompts)
@@ -110,6 +111,7 @@ class SFTDataset(Dataset):
         prompt_ids_len = self.prompt_ids_lens[idx]
         prompt = self.prompts[idx]
         response = self.responses[idx]
+        inst_weight = self.inst_weights[idx]
 
         if not self.pretrain_mode:
             text = (prompt + response).rstrip("\n")
@@ -133,16 +135,18 @@ class SFTDataset(Dataset):
             input_token["attention_mask"][0][-1] = True
         info = {"input": prompt, "output": response, "input_length": input_token["attention_mask"].int().sum().item()}
 
-        return prompt_ids_len, input_token["input_ids"], input_token["attention_mask"], info
+        return prompt_ids_len, inst_weight, input_token["input_ids"], input_token["attention_mask"], info
 
     def collate_fn(self, item_list):
         prompt_ids_lens = []
+        inst_weights = []
         input_ids = []
         attention_masks = []
         infos = {"input": [], "output": []}
 
-        for prompt_ids_len, input_id, attention_mask, info in item_list:
+        for prompt_ids_len, inst_weight, input_id, attention_mask, info in item_list:
             prompt_ids_lens.append(prompt_ids_len)
+            inst_weights.append(inst_weight)
             input_ids.append(input_id)
             attention_masks.append(attention_mask)
             infos["input"].append(info["input"])
@@ -150,28 +154,33 @@ class SFTDataset(Dataset):
 
         input_ids = zero_pad_sequences(input_ids, "right", self.tokenizer.pad_token_id)
         attention_masks = zero_pad_sequences(attention_masks, "right")
-        return prompt_ids_lens, input_ids, attention_masks, infos
+        inst_weights = torch.as_tensor(inst_weights).unsqueeze(-1)  # [BS, 1]
+        return prompt_ids_lens, inst_weights, input_ids, attention_masks, infos
 
     def packing_collate_fn(self, item_list):
         packed_input_ids = []
         packed_attention_masks = []
         prompt_ids_lens = []
+        inst_weights = []
         infos = {"input_length": []}
 
         index = 1
-        for prompt_ids_len, input_id, attention_mask, info in item_list:
+        for prompt_ids_len, inst_weight, input_id, attention_mask, info in item_list:
             packed_input_ids.append(input_id.flatten())
             packed_attention_masks.append(torch.full_like(input_id.flatten(), index))
             prompt_ids_lens.append(prompt_ids_len)
+            _weights = [inst_weight] * len(input_id.flatten())
+            inst_weights.append(torch.as_tensor(_weights))
             infos["input_length"].append(info["input_length"])
             index += 1
 
         packed_input_ids = torch.cat(packed_input_ids, dim=0).unsqueeze(0)
         packed_attention_masks = torch.cat(packed_attention_masks, dim=0).unsqueeze(0)
+        packed_inst_weights = torch.cat(inst_weights, dim=0).unsqueeze(0)
         
         if self.multiple_of > 1 and packed_input_ids.numel() % self.multiple_of != 0: # not divisible by multiple_of; here we align for grouping
             padding_len = self.multiple_of - (packed_input_ids.numel() % self.multiple_of)
             packed_input_ids = F.pad(packed_input_ids, (0, padding_len), value=self.tokenizer.pad_token_id)
             packed_attention_masks = F.pad(packed_attention_masks, (0, padding_len), value=0)
 
-        return prompt_ids_lens, packed_input_ids, packed_attention_masks, infos
+        return prompt_ids_lens, packed_inst_weights, packed_input_ids, packed_attention_masks, infos

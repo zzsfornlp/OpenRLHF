@@ -1,4 +1,5 @@
 from typing import Optional, Tuple
+import os
 
 import torch
 import torch.distributed as dist
@@ -16,16 +17,17 @@ class GPTLMLoss(nn.Module):
     def __init__(self, ring_attn_group=None):
         super().__init__()
         self.IGNORE_INDEX = -100
-        self.loss = nn.CrossEntropyLoss(ignore_index=self.IGNORE_INDEX)
+        self.loss = nn.CrossEntropyLoss(ignore_index=self.IGNORE_INDEX, reduction='none')
 
         self.ring_attn_group = ring_attn_group
         if self.ring_attn_group:
             self.ring_attn_rank = dist.get_rank(self.ring_attn_group)
             self.ring_attn_world_size = dist.get_world_size(self.ring_attn_group)
 
-    def forward(self, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+    def forward(self, logits: torch.Tensor, labels: torch.Tensor, weights=None) -> torch.Tensor:
         # RingAttention
         if self.ring_attn_group is not None:
+            assert weights is None, "No support for this mode yet ..."
             total_seq_len = labels.size(-1)
             seq_len_per_process = total_seq_len // self.ring_attn_world_size
             start_idx = self.ring_attn_rank * seq_len_per_process
@@ -40,7 +42,7 @@ class GPTLMLoss(nn.Module):
                 # Use mean of logits multiplied by 0 to maintain gradient flow
                 loss = shift_logits.mean() * 0
             else:
-                loss = self.loss(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+                loss = self.loss(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1)).mean()
 
             dist.all_reduce(loss, op=dist.ReduceOp.SUM, group=self.ring_attn_group)
             loss = loss / self.ring_attn_world_size
@@ -48,7 +50,14 @@ class GPTLMLoss(nn.Module):
             shift_logits = logits[..., :-1, :].contiguous()
             shift_labels = labels[..., 1:].contiguous()
 
-            loss = self.loss(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
+            loss0 = self.loss(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1)).view_as(shift_labels)  # [bs, L]
+
+            if os.environ.get("ZDEBUG"):
+                print(f"LOSS[R={os.environ.get('RANK')}]: {loss0.shape} {weights.shape} {weights}")
+
+            if weights is not None:
+                loss0 = loss0 * weights.to(loss0)
+            loss = loss0.mean()
 
         return loss
 
