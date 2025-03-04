@@ -57,7 +57,9 @@ class GPTLMLoss(nn.Module):
 
             if weights is not None:
                 loss0 = loss0 * weights.to(loss0)
-            loss = loss0.mean()
+
+            # loss = loss0.mean()
+            loss = loss0[shift_labels!=self.IGNORE_INDEX].mean()  # note: remember to exclude invalid ones!
 
         return loss
 
